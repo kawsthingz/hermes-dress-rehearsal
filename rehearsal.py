@@ -27,12 +27,18 @@ READ_ONLY_TOOLS = frozenset({
 # Shell programs that never change anything when used without output redirection.
 READ_ONLY_COMMANDS = frozenset({
     "ls", "cat", "head", "tail", "grep", "rg", "egrep", "fgrep", "wc", "pwd", "echo",
-    "stat", "file", "du", "df", "which", "whoami", "date", "env", "printenv", "tree",
-    "less", "more", "sort", "uniq", "cut", "basename", "dirname", "realpath", "readlink",
-    "md5sum", "shasum", "sha256sum", "uname", "id", "hostname", "jq", "true", "test",
+    "stat", "file", "du", "df", "which", "whoami", "tree", "sort", "cut", "basename",
+    "dirname", "realpath", "readlink", "md5sum", "shasum", "sha256sum", "uname", "id", "jq",
+    "true", "test",
 })
+# Deliberately absent: env/printenv (print secrets into context; `env CMD` runs CMD), sed (its `w` and
+# `e` commands write files and run programs), uniq (`uniq IN OUT` writes), date/hostname (can set),
+# less/more (interactive, hang).
+WRITE_FLAGS = {"sort": ("-o", "--output"), "tree": ("-o",)}
 READ_ONLY_GIT = frozenset({"status", "log", "diff", "show", "branch", "remote", "rev-parse", "ls-files", "blame"})
-FIND_WRITE_FLAGS = ("-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprintf", "-fls")
+GIT_BRANCH_WRITE = ("-d", "-D", "-m", "-M", "-c", "-C", "--delete", "--move", "--copy", "-u",
+                    "--set-upstream-to", "--unset-upstream", "--edit-description", "-f", "--force")
+FIND_WRITE_FLAGS = ("-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fls")
 
 SENSITIVE_PATH = re.compile(
     r"(\.ssh|\.aws|\.gnupg|\.env\b|id_rsa|credentials|secrets?|passwords?|\.hermes/config|"
@@ -49,9 +55,9 @@ def is_read_only_command(command: str) -> bool:
     and nothing is redirected to a file."""
     if not command or not command.strip():
         return True
-    if re.search(r"(?<![0-9&])>|>>|\btee\b|`|\$\(", command):
+    if re.search(r">|\btee\b|`|\$\(|<\(", command):
         return False
-    segments = re.split(r"\|\||&&|[|;]", command)
+    segments = re.split(r"\|\||&&|[|;&\n\r]", command)
     for seg in segments:
         seg = seg.strip()
         if not seg:
@@ -68,17 +74,25 @@ def is_read_only_command(command: str) -> bool:
         if prog == "cd":
             continue
         if prog == "git":
-            sub = next((w for w in words[1:] if not w.startswith("-")), "")
-            if sub not in READ_ONLY_GIT:
+            rest = words[1:]
+            sub = next((w for w in rest if not w.startswith("-")), "")
+            if sub not in READ_ONLY_GIT or any(w.startswith("--output") for w in rest):
+                return False
+            after = rest[rest.index(sub) + 1:]
+            if sub == "branch" and (any(w.split("=")[0] in GIT_BRANCH_WRITE for w in after)
+                                    or any(not w.startswith("-") for w in after)):
+                return False
+            if sub == "remote" and any(w not in {"-v", "--verbose"} for w in after):
                 return False
             continue
         if prog == "find":
-            if any(w in FIND_WRITE_FLAGS for w in words):
+            if any(w.startswith(FIND_WRITE_FLAGS) for w in words):
                 return False
             continue
-        if prog == "sed" and not any(w.startswith("-i") for w in words):
-            continue
         if prog not in READ_ONLY_COMMANDS:
+            return False
+        if any(w == f or w.startswith(f + "=") or (f == "-o" and w.startswith("-o") and len(w) > 2)
+               for f in WRITE_FLAGS.get(prog, ()) for w in words[1:]):
             return False
     return True
 

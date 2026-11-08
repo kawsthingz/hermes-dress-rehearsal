@@ -23,7 +23,8 @@ core = sys.modules["dress_rehearsal.rehearsal"]
 
 @pytest.mark.parametrize("cmd", [
     "ls -la", "cat a.txt | grep foo | wc -l", "git status", "git log --oneline -5",
-    "find . -name '*.py'", "cd src && ls", "sed -n 1,5p f.txt", "FOO=1 echo hi", "",
+    "find . -name '*.py'", "cd src && ls", "FOO=1 echo hi", "", "git branch", "git branch -a", "git remote -v",
+    "sort names.txt", "wc -l a.txt",
 ])
 def test_read_only_commands_run(cmd):
     assert core.is_read_only_command(cmd)
@@ -33,6 +34,10 @@ def test_read_only_commands_run(cmd):
     "rm -rf old/", "echo hi > out.txt", "cat a >> b", "git push origin main", "find . -delete",
     "find . -exec rm {} \\;", "sed -i s/a/b/ f", "ls && rm x", "python script.py", "curl -X POST x",
     "echo $(rm x)", "ls | tee log", "mv a b",
+    "ls\nrm x", "ls & rm x", "env rm x", "printenv", "sed -n 1p f", "uniq a b", "sort -o out a",
+    "sort --output=out a", "git branch -D main", "git branch newbranch", "git remote add x url",
+    "git diff --output=patch.txt", "find . -fprint0 out", "cat <(rm x)", "date -s 2020-01-01",
+    "hostname evil", "less file",
 ])
 def test_mutating_commands_are_recorded(cmd):
     assert not core.is_read_only_command(cmd)
