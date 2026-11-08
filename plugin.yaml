@@ -1,0 +1,14 @@
+name: dress-rehearsal
+version: "0.1.0"
+requires_hermes: ">=0.23.0"
+description: >-
+  Rehearse a task before it touches anything. /rehearse on, then give Hermes the job: reads run
+  for real, every change (file writes, edits, shell commands that modify, messages, schedules) is
+  recorded into a numbered script instead of running. /rehearse shows the script with diffs and
+  risk flags, /rehearse drop strikes steps, /rehearse go replays the kept steps exactly as recorded
+  with no model in the loop, refusing any file that changed since the rehearsal.
+author: kawsthingz
+provides_tools: []
+provides_hooks:
+  - pre_tool_call
+  - pre_llm_call
