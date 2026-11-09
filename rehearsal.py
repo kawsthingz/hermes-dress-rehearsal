@@ -50,11 +50,15 @@ NETWORK_WRITE_CMD = re.compile(
     r"(curl\b.*(-X\s*(POST|PUT|PATCH|DELETE)|--data|-d\s|-F\s)|wget\b.*--post|git\s+push|scp\s|rsync\s.*:|ssh\s)", re.I)
 
 
+SAFE_REDIRECT = re.compile(r"(?<![\w>&])(?:[12]?>|&>)\s*/dev/null(?![\w/.])|(?<![\w>&])2>&1(?!\w)")
+
+
 def is_read_only_command(command: str) -> bool:
     """True only when every segment of a shell command is a known read-only program
     and nothing is redirected to a file."""
     if not command or not command.strip():
         return True
+    command = SAFE_REDIRECT.sub(" ", command)  # 2>/dev/null and 2>&1 discard or merge output, they write nothing
     if re.search(r">|\btee\b|`|\$\(|<\(", command):
         return False
     segments = re.split(r"\|\||&&|[|;&\n\r]", command)
@@ -173,6 +177,17 @@ class Step:
     dropped: bool = False
     status: str = "pending"  # pending | done | failed | skipped
     result: str = ""
+    cwd: str | None = None  # the agent's folder when this step was recorded
+
+    def run_args(self) -> dict:
+        """Args for replay: shell steps run in the folder they were rehearsed in, and file writes use the
+        absolute path that was fingerprinted, so replay does not depend on where /rehearse go is typed."""
+        args = dict(self.args)
+        if self.tool == "terminal" and self.cwd and not args.get("workdir"):
+            args["workdir"] = self.cwd
+        if self.tool in {"write_file", "patch"} and self.target:
+            args["path"] = self.target
+        return args
 
 
 def assess_risks(tool: str, args: dict, target: str | None, cwd: str | None) -> list[str]:
@@ -238,7 +253,7 @@ class Rehearsal:
         path = args.get("path") or args.get("file_path") if isinstance(args, dict) else None
         target, sha = _file_fingerprint(path, self.cwd) if tool in {"write_file", "patch"} else (None, None)
         step = Step(n=len(self.steps) + 1, tool=tool, args=dict(args), target=target, target_sha=sha,
-                    risks=assess_risks(tool, args, target, self.cwd))
+                    risks=assess_risks(tool, args, target, self.cwd), cwd=self.cwd)
         self.steps.append(step)
         return step
 
@@ -272,13 +287,14 @@ class Rehearsal:
         live = [s for s in self.live_steps() if s.status != "done"]
         done = 0
         for s in live:
+            s.cwd = s.cwd or self.cwd  # steps saved before cwd was stored per step
             if s.tool in {"write_file", "patch"} and s.target:
                 _, now_sha = _file_fingerprint(s.target, None)
                 if now_sha != s.target_sha:
                     s.status, s.result = "failed", "file changed since the rehearsal; re-rehearse to be safe"
                     return done, len(live), s
             try:
-                out = dispatch(s.tool, s.args)
+                out = dispatch(s.tool, s.run_args())
             except Exception as exc:  # report, never raise into the chat surface
                 s.status, s.result = "failed", f"{type(exc).__name__}: {exc}"
                 return done, len(live), s
@@ -392,9 +408,12 @@ RECORDED_NOTE = ("[DRESS REHEARSAL] Recorded as step {n}, not executed. Treat it
                  "and continue the task as if it ran. Do not retry or verify it.")
 
 AGENT_BRIEF = (
-    "DRESS REHEARSAL MODE is on. Carry out the user's task fully and normally. Reading tools run for real. "
-    "Every action that would change something (writing files, editing, shell commands that modify, sending "
-    "messages, scheduling) is recorded into a script instead of running, and its result says '[DRESS REHEARSAL] "
-    "Recorded'. Treat recorded actions as successful, do not retry them, do not try to work around the "
-    "recording, and do not re-read files to check them. Finish the whole task, then end with one line telling "
-    "the user to type /rehearse to review the script.")
+    "DRESS REHEARSAL MODE is on. The user switched it on themselves with /rehearse on (Dress Rehearsal plugin). "
+    "Nothing you do in this task can change anything: reading tools run for real, and every action that would change "
+    "something (writing files, editing, shell commands that modify, sending messages, scheduling) is caught by the "
+    "plugin and recorded into a script instead of running; its result says '[DRESS REHEARSAL] Recorded'. The user "
+    "approves or strikes each recorded action afterwards with /rehearse go, so that review IS the confirmation step: "
+    "do not stop to ask for approval, do not offer drafts instead of acting. Call the tools exactly as you would to do "
+    "the task for real. Treat recorded actions as successful, do not retry them or work around the recording, and do "
+    "not re-read files to check them. Finish the whole task, then end with one line telling the user to type "
+    "/rehearse to review the script.")

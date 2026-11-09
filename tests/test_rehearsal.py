@@ -24,7 +24,7 @@ core = sys.modules["dress_rehearsal.rehearsal"]
 @pytest.mark.parametrize("cmd", [
     "ls -la", "cat a.txt | grep foo | wc -l", "git status", "git log --oneline -5",
     "find . -name '*.py'", "cd src && ls", "FOO=1 echo hi", "", "git branch", "git branch -a", "git remote -v",
-    "sort names.txt", "wc -l a.txt",
+    "sort names.txt", "wc -l a.txt", "cat notes.md 2>/dev/null", "ls missing 2>&1 | head", "grep x f >/dev/null",
 ])
 def test_read_only_commands_run(cmd):
     assert core.is_read_only_command(cmd)
@@ -37,7 +37,7 @@ def test_read_only_commands_run(cmd):
     "ls\nrm x", "ls & rm x", "env rm x", "printenv", "sed -n 1p f", "uniq a b", "sort -o out a",
     "sort --output=out a", "git branch -D main", "git branch newbranch", "git remote add x url",
     "git diff --output=patch.txt", "find . -fprint0 out", "cat <(rm x)", "date -s 2020-01-01",
-    "hostname evil", "less file",
+    "hostname evil", "less file", "cat a 2>/dev/null > out", "ls >/dev/nullx", "echo hi >/dev/null/../tmp/x",
 ])
 def test_mutating_commands_are_recorded(cmd):
     assert not core.is_read_only_command(cmd)
@@ -211,3 +211,17 @@ def test_replay_reads_existing_file_before_overwrite(tmp_path):
     ctx.hooks["pre_tool_call"](tool_name="write_file", args={"path": str(f), "content": "new"})
     assert "Ran 1 of 1" in ctx.commands["rehearse"]("go")
     assert [n for n, _ in ctx.dispatched] == ["read_file", "write_file"]
+
+
+def test_replay_runs_in_rehearsed_folder(tmp_path):
+    r = core.Rehearsal()
+    r.start(str(tmp_path))
+    r.record("terminal", {"command": "rm old.log"})
+    r.record("write_file", {"path": "notes.md", "content": "x"})
+    r.record("terminal", {"command": "ls", "workdir": "/elsewhere"})
+    seen = []
+    r.replay(lambda n, a: seen.append(a) or "{}")
+    assert seen[0]["workdir"] == str(tmp_path)
+    assert seen[1]["path"] == str(tmp_path / "notes.md")
+    assert seen[2]["workdir"] == "/elsewhere"
+    assert r.steps[0].args == {"command": "rm old.log"}  # the approved script itself is unchanged

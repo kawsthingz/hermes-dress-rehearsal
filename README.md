@@ -25,6 +25,10 @@ Nothing above has run.
 Ran 3 of 3 approved steps (script 7efb9708988e). Rehearsal closed.
 ```
 
+![The rehearsal script: every change Hermes would make, with diffs and risk flags](screenshots/rehearsal-script.png)
+
+![Strike steps, run exactly what you approved](screenshots/rehearsal-go.png)
+
 ## Why a plugin and not a prompt
 
 Plan modes ask the model to describe what it will do, then let it do the work afresh. What runs can differ from what you approved. Dress Rehearsal works one level lower:
@@ -32,13 +36,14 @@ Plan modes ask the model to describe what it will do, then let it do the work af
 - **The agent really does the task.** Reads run for real, so its decisions rest on your actual files. Every call that would change something is caught in `pre_tool_call` and recorded with its exact arguments.
 - **What you approve is what runs.** `/rehearse go` replays the recorded calls in order with no model in the loop. Nothing is regenerated, and the script hash on screen is the hash of what runs.
 - **Stale approvals are refused.** Each file write records the file's SHA-256 at rehearsal time. If the file changed before you press go, replay stops at that step.
+- **It runs where it was rehearsed.** Shell steps replay in the folder the agent was working in, and file writes use the absolute path that was fingerprinted, wherever you type `/rehearse go`.
 - **It stops at the first failure.** The steps after it stay pending, and `/rehearse go` resumes from there.
 
 ## What counts as a change
 
 Fail-closed: any tool not on the read-only list is recorded. Read-only tools are file reads and searches, web search and extract, vision, skill and session lookups, `clarify`, todo and kanban reads, and Hermes' own tool discovery (`tool_search`, `tool_describe`). Calls wrapped in Hermes' `tool_call` envelope are unwrapped and judged by what they contain.
 
-Shell commands run only when every segment (split on `|`, `;`, `&`, `&&`, `||` and newlines) is a known read-only program (`ls`, `cat`, `grep`, `find` without `-delete`/`-exec`/`-fprint`, `git status`/`log`/`diff`, plain `git branch`, and similar) and nothing is redirected. Anything else is recorded, including `$(...)`, `<(...)`, backticks, `tee`, `>`, `sort -o`, `git branch -D` and `git remote add`. `env`, `printenv`, `sed`, `uniq`, `date` and `hostname` are never treated as read-only: they can print secrets, write files, run programs or change settings.
+Shell commands run only when every segment (split on `|`, `;`, `&`, `&&`, `||` and newlines) is a known read-only program (`ls`, `cat`, `grep`, `find` without `-delete`/`-exec`/`-fprint`, `git status`/`log`/`diff`, plain `git branch`, and similar) and nothing is redirected (`2>/dev/null` and `2>&1` are allowed, since they write nothing). Anything else is recorded, including `$(...)`, `<(...)`, backticks, `tee`, `>`, `sort -o`, `git branch -D` and `git remote add`. `env`, `printenv`, `sed`, `uniq`, `date` and `hostname` are never treated as read-only: they can print secrets, write files, run programs or change settings.
 
 Risk flags: deletes, moves or kills; sends data off this machine; touches sensitive files (keys, `.env`, credentials, tax, invoices, contracts, backups); overwrites an existing file; writes outside the project folder; messages that leave the machine; subagents, code execution and schedules.
 
@@ -77,4 +82,4 @@ Hooks `pre_tool_call` (records and blocks side-effecting calls only while armed)
 cd tests && uvx pytest -q
 ```
 
-55 tests cover the shell classifier, risk flags, `tool_call` unwrapping, drop and keep, state round trips, ordered replay, stop and resume, refusal on drift, read-before-overwrite, and the full hook-plus-command flow.
+62 tests cover the shell classifier, risk flags, `tool_call` unwrapping, drop and keep, state round trips, ordered replay, stop and resume, refusal on drift, read-before-overwrite, replay in the rehearsed folder, and the full hook-plus-command flow.
