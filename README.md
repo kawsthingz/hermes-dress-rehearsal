@@ -43,7 +43,7 @@ Plan modes ask the model to describe what it will do, then let it do the work af
 
 Fail-closed: any tool not on the read-only list is recorded. Read-only tools are file reads and searches, web search and extract, vision, skill and session lookups, `clarify`, todo and kanban reads, and Hermes' own tool discovery (`tool_search`, `tool_describe`). Calls wrapped in Hermes' `tool_call` envelope are unwrapped and judged by what they contain.
 
-Shell commands run only when every segment (split on `|`, `;`, `&`, `&&`, `||` and newlines) is a known read-only program (`ls`, `cat`, `grep`, `find` without `-delete`/`-exec`/`-fprint`, `git status`/`log`/`diff`, plain `git branch`, and similar) and nothing is redirected (`2>/dev/null` and `2>&1` are allowed, since they write nothing). Anything else is recorded, including `$(...)`, `<(...)`, backticks, `tee`, `>`, `sort -o`, `git branch -D` and `git remote add`. `env`, `printenv`, `sed`, `uniq`, `date` and `hostname` are never treated as read-only: they can print secrets, write files, run programs or change settings.
+Shell commands run only when every segment (split on `|`, `;`, `&`, `&&`, `||` and newlines) is a known read-only program (`ls`, `cat`, `grep`, `find` without `-delete`/`-exec`/`-fprint`, `git status`/`log`/`diff`, plain `git branch`, and similar) and nothing is redirected (`2>/dev/null` and `2>&1` are allowed, since they write nothing). Anything else is recorded, including `$(...)`, `<(...)`, backticks, `tee`, `>`, `sort -o`, `git branch -D` and `git remote add`. A segment that starts with a `VAR=value` prefix is always recorded, since `GIT_EXTERNAL_DIFF=`, `GIT_PAGER=` or `LD_PRELOAD=` can make a harmless program run another. So are `git -c`, `--config-env`, `--exec-path`, `--ext-diff` and `--textconv`, which run configured programs. `env`, `printenv`, `sed`, `uniq`, `date`, `hostname`, `rg`, `sort`, `file` and `jq` are never treated as read-only: they can print secrets, write files, run programs or change settings.
 
 Risk flags: deletes, moves or kills; sends data off this machine; touches sensitive files (keys, `.env`, credentials, tax, invoices, contracts, backups); overwrites an existing file; writes outside the project folder; messages that leave the machine; subagents, code execution and schedules.
 
@@ -82,4 +82,4 @@ Hooks `pre_tool_call` (records and blocks side-effecting calls only while armed)
 cd tests && uvx pytest -q
 ```
 
-62 tests cover the shell classifier, risk flags, `tool_call` unwrapping, drop and keep, state round trips, ordered replay, stop and resume, refusal on drift, read-before-overwrite, replay in the rehearsed folder, and the full hook-plus-command flow.
+84 tests cover the shell classifier, risk flags, `tool_call` unwrapping, drop and keep, state round trips, ordered replay, stop and resume, refusal on drift, read-before-overwrite, replay in the rehearsed folder, and the full hook-plus-command flow.

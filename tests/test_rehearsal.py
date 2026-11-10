@@ -23,8 +23,8 @@ core = sys.modules["dress_rehearsal.rehearsal"]
 
 @pytest.mark.parametrize("cmd", [
     "ls -la", "cat a.txt | grep foo | wc -l", "git status", "git log --oneline -5",
-    "find . -name '*.py'", "cd src && ls", "FOO=1 echo hi", "", "git branch", "git branch -a", "git remote -v",
-    "sort names.txt", "wc -l a.txt", "cat notes.md 2>/dev/null", "ls missing 2>&1 | head", "grep x f >/dev/null",
+    "find . -name '*.py'", "cd src && ls", "", "git branch", "git branch -a", "git remote -v",
+    "wc -l a.txt", "git diff --stat", "git log -p -3", "cat notes.md 2>/dev/null", "ls missing 2>&1 | head", "grep x f >/dev/null",
 ])
 def test_read_only_commands_run(cmd):
     assert core.is_read_only_command(cmd)
@@ -37,7 +37,14 @@ def test_read_only_commands_run(cmd):
     "ls\nrm x", "ls & rm x", "env rm x", "printenv", "sed -n 1p f", "uniq a b", "sort -o out a",
     "sort --output=out a", "git branch -D main", "git branch newbranch", "git remote add x url",
     "git diff --output=patch.txt", "find . -fprint0 out", "cat <(rm x)", "date -s 2020-01-01",
-    "hostname evil", "less file", "cat a 2>/dev/null > out", "ls >/dev/nullx", "echo hi >/dev/null/../tmp/x",
+    "hostname evil", "less file", "FOO=1 echo hi",
+    # review of 332e2f42: env prefixes, program-running flags, git config and external diff
+    "GIT_EXTERNAL_DIFF=./evil git diff", "GIT_PAGER='rm -rf x' git log", "LD_PRELOAD=./x.so ls",
+    "ls && PAGER=x git log", "rg --pre ./evil foo", "rg --pre-glob '*' --pre ./x foo", "rg --hostname-bin ./x foo",
+    "rg foo", "sort --compress-program=./x big.txt", "sort names.txt", "file -C -m magic", "file --compile x",
+    "file notes.md", "jq -n env", "git diff --ext-diff", "git log --textconv -p", "git show --ext-diff HEAD",
+    "git -c core.pager=./x log", "git -c diff.external=./x diff", "git --config-env=core.pager=X log",
+    "git --exec-path=/tmp status", "cat a 2>/dev/null > out", "ls >/dev/nullx", "echo hi >/dev/null/../tmp/x",
 ])
 def test_mutating_commands_are_recorded(cmd):
     assert not core.is_read_only_command(cmd)

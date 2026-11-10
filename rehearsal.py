@@ -26,16 +26,21 @@ READ_ONLY_TOOLS = frozenset({
 
 # Shell programs that never change anything when used without output redirection.
 READ_ONLY_COMMANDS = frozenset({
-    "ls", "cat", "head", "tail", "grep", "rg", "egrep", "fgrep", "wc", "pwd", "echo",
-    "stat", "file", "du", "df", "which", "whoami", "tree", "sort", "cut", "basename",
-    "dirname", "realpath", "readlink", "md5sum", "shasum", "sha256sum", "uname", "id", "jq",
+    "ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "wc", "pwd", "echo",
+    "stat", "du", "df", "which", "whoami", "tree", "cut", "basename",
+    "dirname", "realpath", "readlink", "md5sum", "shasum", "sha256sum", "uname", "id",
     "true", "test",
 })
 # Deliberately absent: env/printenv (print secrets into context; `env CMD` runs CMD), sed (its `w` and
 # `e` commands write files and run programs), uniq (`uniq IN OUT` writes), date/hostname (can set),
-# less/more (interactive, hang).
-WRITE_FLAGS = {"sort": ("-o", "--output"), "tree": ("-o",)}
+# less/more (interactive, hang), rg (--pre/--pre-glob/--hostname-bin run programs), sort (-o writes,
+# --compress-program runs a program), file (-C/--compile writes a magic file), jq (`env`/`$ENV` print secrets).
+WRITE_FLAGS = {"tree": ("-o",)}
 READ_ONLY_GIT = frozenset({"status", "log", "diff", "show", "branch", "remote", "rev-parse", "ls-files", "blame"})
+# Global options that set config for one call (core.pager, diff.external, ...) and so can run any program.
+GIT_CONFIG_OPTS = ("-c", "--config-env", "--exec-path")
+# Diff options that run configured external programs.
+GIT_PROGRAM_FLAGS = ("--ext-diff", "--textconv")
 GIT_BRANCH_WRITE = ("-d", "-D", "-m", "-M", "-c", "-C", "--delete", "--move", "--copy", "-u",
                     "--set-upstream-to", "--unset-upstream", "--edit-description", "-f", "--force")
 FIND_WRITE_FLAGS = ("-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fls")
@@ -70,8 +75,8 @@ def is_read_only_command(command: str) -> bool:
             words = shlex.split(seg)
         except ValueError:
             return False
-        while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
-            words = words[1:]
+        if words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+            return False  # VAR=value prefixes (GIT_EXTERNAL_DIFF=, GIT_PAGER=, LD_PRELOAD=) can make any program run another
         if not words:
             continue
         prog = os.path.basename(words[0])
@@ -79,8 +84,12 @@ def is_read_only_command(command: str) -> bool:
             continue
         if prog == "git":
             rest = words[1:]
+            if any(w.split("=")[0] in GIT_CONFIG_OPTS or (w.startswith("-c") and len(w) > 2) for w in rest):
+                return False
             sub = next((w for w in rest if not w.startswith("-")), "")
             if sub not in READ_ONLY_GIT or any(w.startswith("--output") for w in rest):
+                return False
+            if any(w.split("=")[0] in GIT_PROGRAM_FLAGS for w in rest):
                 return False
             after = rest[rest.index(sub) + 1:]
             if sub == "branch" and (any(w.split("=")[0] in GIT_BRANCH_WRITE for w in after)
